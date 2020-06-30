@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/content/Python/bin/python3.6
 import os
 import torch
 

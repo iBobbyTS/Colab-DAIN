@@ -6,7 +6,8 @@ import numpy as np
 import numpy
 import networks
 from my_args import args
-from imageio import imread, imsave
+# from imageio import imread, imsave
+from cv2 import imread, imwrite
 from AverageMeter import *
 import shutil
 import datetime
@@ -67,6 +68,7 @@ torch.set_grad_enabled(False)
 # so the last iteration will actuall be (end_frame-1) and (end_frame)
 input_files = os.listdir(frames_dir)
 input_files.sort()
+session_count = 0
 while input_frame < final_frame - 1:
     # input_frame += 1
 
@@ -75,8 +77,8 @@ while input_frame < final_frame - 1:
     filename_frame_1 = os.path.join(frames_dir, input_files[input_frame])
     filename_frame_2 = os.path.join(frames_dir, input_files[input_frame+1])
 
-    X0 = torch.from_numpy(np.transpose(imread(filename_frame_1), (2,0,1)[0:3]).astype("float32") / 255.0).type(args.dtype)
-    X1 = torch.from_numpy(np.transpose(imread(filename_frame_2), (2,0,1)[0:3]).astype("float32") / 255.0).type(args.dtype)
+    X0 = torch.from_numpy(np.transpose(imread(filename_frame_1), (2,0,1))[0:3].astype("float32") / 255.0).type(args.dtype)
+    X1 = torch.from_numpy(np.transpose(imread(filename_frame_2), (2,0,1))[0:3].astype("float32") / 255.0).type(args.dtype)
 
     assert (X0.size(1) == X1.size(1))
     assert (X0.size(2) == X1.size(2))
@@ -151,15 +153,16 @@ while input_frame < final_frame - 1:
     for item, time_offset in zip(y_, time_offsets):
         interpolated_frame_number += 1
         output_frame_file_path = os.path.join(output_dir, f"{input_files[input_frame].split('.')[0]}{interpolated_frame_number:0>3d}.png")
-        imsave(output_frame_file_path, np.round(item).astype(numpy.uint8))
+        imwrite(output_frame_file_path, np.round(item).astype(numpy.uint8))
 
     end_time = time.time()
     time_spent = end_time - start_time
     input_frame += 1
-    if input_frame == 1:
+    session_count += 1
+    if session_count == 1:
       print(f"****** Initialized and processed frame {'1'.zfill(frame_count_len)} | Time spent: {round(time_spent, 2)}s ******************" )
     else:
-      if input_frame == 2:
+      if session_count == 2:
         len_time_spent = len(str(round(time_spent))) + 5
       loop_timer.update(time_spent)
       frames_left = final_frame - input_frame
@@ -170,9 +173,10 @@ while input_frame < final_frame - 1:
       print(f"****** Processed frame {str(input_frame).zfill(frame_count_len)} | Time spent: {(str(round(time_spent, 2))+'s').ljust(len_time_spent)} | Time left: {estimated_time_left} ******************" )
     
 
-# Copying last frame
-last_frame_filename = os.path.join(frames_dir, input_files[-1])
-for i in range(interpolated_frame_number+1):
-  shutil.copy(last_frame_filename, os.path.join(output_dir, f"{input_files[-1].split('.')[0]}{i:0>3d}.png"))
+if args.copy_last_frame == 'True':
+  # Copying last frame
+  last_frame_filename = os.path.join(frames_dir, input_files[-1])
+  for i in range(interpolated_frame_number+1):
+    shutil.copy(last_frame_filename, os.path.join(output_dir, f"{input_files[-1].split('.')[0]}{i:0>3d}.png"))
 
 print("Finished processing images.")

@@ -71,6 +71,7 @@ parser.add_argument('--start_frame', type = int, default = 1, help='first frame 
 parser.add_argument('--end_frame', type = int, default = 100, help='last frame number to process')
 parser.add_argument('--frame_input_dir', type = str, default = '/content/DAIN/input_frames', help='frame input directory')
 parser.add_argument('--frame_output_dir', type = str, default = '/content/DAIN/output_frames', help='frame output directory')
+parser.add_argument('--copy_last_frame', type = str, default = 'True', help='Copy the last frame or not')
 
 args = parser.parse_args()
 

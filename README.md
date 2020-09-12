@@ -112,9 +112,9 @@ If you find the code and datasets useful in your research, please cite:
 ### Installation
 Download repository:
 
-    $ git clone https://github.com/baowenbo/DAIN.git
+    $ git clone https://github.com/iBobbyTS/Colab-DAIN.git
 
-Before building Pytorch extensions, be sure you have `pytorch >= 1.0.0`:
+Before building Pytorch extensions, be sure you have `pytorch >= 1.0.0, <=1.4.0`:
     
     $ python -c "import torch; print(torch.__version__)"
     

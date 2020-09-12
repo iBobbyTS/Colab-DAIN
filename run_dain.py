@@ -5,7 +5,7 @@ import time
 import random
 import argparse
 import cv2
-import numpy as np
+import numpy
 
 
 def str2bool(v):
@@ -36,7 +36,7 @@ parser.add_argument('-pt', '--process_type',
                     help='1. General processing; 2. Interpolate to at least 60fps, ex. 30->60, 24->72， 50->100; Interpolate between duplicated frames. ')
 # Model directory
 parser.add_argument('-md', '--model_path',
-                    type=str, default='SuperSloMo.ckpt',
+                    type=str, default='model_weights/best.pth',
                     help='path of checkpoint for pretrained model')
 # Time step
 parser.add_argument('-sf',
@@ -63,9 +63,6 @@ parser.add_argument('-fd', '--ffmpeg_dir',
 parser.add_argument('-mc', '--mac_compatibility',
                     type=str2bool, default=True,
                     help='If you want to play it on a mac with QuickTime or iOS, set this to True and the pixel format will be yuv420p. ')
-parser.add_argument('-bs', '--batch_size',
-                    type=int, default=1,
-                    help='Specify batch size for faster conversion. This will depend on your cpu/gpu memory. Default: 1')
 # Temporary files
 parser.add_argument('-tmp', '--temp_file_path',
                     type=str, default='tmp',
@@ -129,7 +126,7 @@ def npz2tif(temp_folder):
     os.mkdir(f'{temp_folder}/tiff')
     frames_to_process = listdir(f'{temp_folder}/out')
     for frame in frames_to_process:
-        img = np.load(f'{temp_folder}/out/{frame}')['arr_0']
+        img = numpy.load(f'{temp_folder}/out/{frame}')['arr_0']
         cv2.imwrite(f'{temp_folder}/tiff/{frame.split(".")[0]}.tiff', img)
 
 
@@ -153,7 +150,7 @@ for process in processes:
         output = process_info['output']
         output_type = process_info['output_type']
         mac_compatibility = process_info['mac_compatibility']
-        ssm_folder = process_info['ssm_folder']
+        dain_folder = process_info['dain_folder']
         temp_folder = process_info['temp_folder']
         filename = process_info['filename']
         start_frame = len(listdir(f'{temp_folder}/out')) // sf
@@ -191,7 +188,7 @@ for process in processes:
             for i in range(frame_count):
                 rtl, frame = cap.read()
                 if rtl:
-                    np.savez_compressed(f'{temp_folder}/in/{str(i + 1).zfill(frame_count_len)}', frame)
+                    numpy.savez_compressed(f'{temp_folder}/in/{str(i + 1).zfill(frame_count_len)}', frame)
             cap.release()
             # sf
             if args.process_type == 'general':
@@ -214,7 +211,7 @@ for process in processes:
             files = listdir(f'{temp_folder}/in_img')
             for file in files:
                 frame = cv2.imread(f'{temp_folder}/in_img/{file}')
-                np.savez_compressed(f'{temp_folder}/in/{os.path.splitext(file)[0]}', frame)
+                numpy.savez_compressed(f'{temp_folder}/in/{os.path.splitext(file)[0]}', frame)
             frame_count = len(listdir(f'{temp_folder}/in'))
             if not args.fps:
                 target_fps = 60
@@ -261,8 +258,8 @@ for process in processes:
         save_which = args.save_which
 
     # Log
-    ssm_folder = os.getcwd()
-    process_info = {'ssm_folder': ssm_folder,
+    dain_folder = os.getcwd()
+    process_info = {'dain_folder': dain_folder,
                     'batch_size': args.batch_size,
                     'model_path': args.model_path,
                     'temp_folder': temp_folder,
@@ -285,7 +282,7 @@ for process in processes:
     # Process
     os.chdir(temp_folder)
     t = time.time()
-    exit_code = os.system(f'{sys.executable} {ssm_folder}/video_to_slomo.py')
+    exit_code = os.system(f'{sys.executable} {dain_folder}/video_to_slomo.py')
     print(f'Interpolation spent {round(time.time() - t, 2)}s')
     if exit_code != 0:
         print(exit_code)
@@ -299,7 +296,7 @@ for process in processes:
             target = f'{temp_folder}/out/{frames_to_process[-1].replace(".npz", "")}_{str(i).zfill(sf_len)}.npz'
             shutil.copyfile(original, target)
 
-    os.chdir(ssm_folder)
+    os.chdir(dain_folder)
 
     # Output filename
     if output == 'default':
@@ -342,7 +339,7 @@ for process in processes:
         else:
             video_out = 'video.mp4'
         if input_type == 'video' and start_frame == 1 and start_frame == 0:
-            # temp_folder, ssm_folder, sf, copy, frames_to_process, filename, target_fps, pix_fmt, args.output,output_type,mac_compatibility,ffmpeg_dir,remove_temp_file
+            # temp_folder, dain_folder, sf, copy, frames_to_process, filename, target_fps, pix_fmt, args.output,output_type,mac_compatibility,ffmpeg_dir,remove_temp_file
             os.system(f'"{os.path.join(ffmpeg_dir, "ffmpeg")}" -loglevel error -thread_queue_size 128 -vsync 0 -r {target_fps} -pattern_type glob -i "{temp_folder}/tiff/*.tiff" -vn -i "{temp_folder}/in{filename[2]}" -vcodec h264{pix_fmt} "{temp_folder}/{video_out}"')
         else:
             print(f'"{os.path.join(ffmpeg_dir, "ffmpeg")}" -loglevel error -vsync 0 -r {target_fps} -pattern_type glob -i "{temp_folder}/tiff/*.tiff" -vcodec h264{pix_fmt} "{temp_folder}/{video_out}"')

@@ -2,40 +2,29 @@ import time
 import os
 from torch.autograd import Variable
 import torch
-import numpy as np
 import numpy
 import networks
-from my_args import args
-# from imageio import imread, imsave
-from cv2 import imread, imwrite
-from AverageMeter import *
 import shutil
-import datetime
 import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning)
 torch.backends.cudnn.benchmark = True
 
-model = networks.__dict__[args.netName](
-                                    channel = args.channels,
-                                    filter_size = args.filter_size,
-                                    timestep = args.time_step,
-                                    training = False)
+with open('process_info.txt', 'r') as file:
+    process_info = file.read()
+    process_info = eval(process_info)
+os.chdir(process_info['ssm_folder'])
+sf_length = len(str(process_info['sf'] - 1))
 
-if args.use_cuda:
-    model = model.cuda()
+model = networks.__dict__[process_info['net_name']](
+    channel=3,
+    filter_size=4,
+    timestep=1 / process_info['sf'],
+    training=False).cuda()
 
-model_path = './model_weights/best.pth'
-if not os.path.exists(model_path):
-    print("*****************************************************************")
-    print("**** We couldn't load any trained weights ***********************")
-    print("*****************************************************************")
-    exit(1)
+model_path = process_info['model_path']
 
-if args.use_cuda:
-    pretrained_dict = torch.load(model_path)
-else:
-    pretrained_dict = torch.load(model_path, map_location=lambda storage, loc: storage)
+pretrained_dict = torch.load(model_path)
 
 model_dict = model.state_dict()
 # 1. filter out unnecessary keys
@@ -47,136 +36,102 @@ model.load_state_dict(model_dict)
 # 4. release the pretrained dict for saving memory
 pretrained_dict = []
 
-model = model.eval() # deploy mode
+model = model.eval()  # deploy mode
 
-frames_dir = args.frame_input_dir
-output_dir = args.frame_output_dir
-
-timestep = args.time_step
+timestep = process_info['sf']
 time_offsets = [kk * timestep for kk in range(1, int(1.0 / timestep))]
-
-input_frame = args.start_frame - 1
-loop_timer = AverageMeter()
-
-final_frame = args.end_frame
-frame_count_len = len(str(final_frame))
 
 torch.set_grad_enabled(False)
 
-# we want to have input_frame between (start_frame-1) and (end_frame-2)
-# this is because at each step we read (frame) and (frame+1)
-# so the last iteration will actuall be (end_frame-1) and (end_frame)
-input_files = os.listdir(frames_dir)
-input_files.sort()
-session_count = 0
-while input_frame < final_frame - 1:
-    # input_frame += 1
+input_files = process_info['frames_to_process']
+loop_timer = []
+try:
+    for _ in range(len(input_files) - 1):
 
-    start_time = time.time()
+        start_time = time.time()
 
-    filename_frame_1 = os.path.join(frames_dir, input_files[input_frame])
-    filename_frame_2 = os.path.join(frames_dir, input_files[input_frame+1])
+        filename_frame_1 = f'{process_info["temp_folder"]}/in/{input_files[_]}'
+        filename_frame_2 = f'{process_info["temp_folder"]}/in/{input_files[_ + 1]}'
 
-    X0 = torch.from_numpy(np.transpose(imread(filename_frame_1), (2,0,1))[0:3].astype("float32") / 255.0).type(args.dtype)
-    X1 = torch.from_numpy(np.transpose(imread(filename_frame_2), (2,0,1))[0:3].astype("float32") / 255.0).type(args.dtype)
+        # X0 = torch.from_numpy(numpy.transpose(numpy.load(filename_frame_1)['arr_0'], (2, 0, 1))[0:3].astype("float32") / 255.0).type(torch.cuda.FloatTensor)
+        # X1 = torch.from_numpy(numpy.transpose(numpy.load(filename_frame_2)['arr_0'], (2, 0, 1))[0:3].astype("float32") / 255.0).type(torch.cuda.FloatTensor)
+        X0 = torch.cuda.FloatTensor(numpy.load(filename_frame_1)['arr_0'])[:, :, :3].permute(2, 0, 1) / 255
+        X1 = torch.cuda.FloatTensor(numpy.load(filename_frame_2)['arr_0'])[:, :, :3].permute(2, 0, 1) / 255
 
-    assert (X0.size(1) == X1.size(1))
-    assert (X0.size(2) == X1.size(2))
+        assert (X0.size() == X1.size())
 
-    intWidth = X0.size(2)
-    intHeight = X0.size(1)
-    channels = X0.size(0)
-    if not channels == 3:
-        print(f"Skipping {filename_frame_1}-{filename_frame_2} -- expected 3 color channels but found {channels}.")
-        continue
+        intWidth = X0.size(2)
+        intHeight = X0.size(1)
+        channels = X0.size(0)
+        if not channels == 3:
+            print(f"Skipping {filename_frame_1}-{filename_frame_2} -- expected 3 color channels but found {channels}.")
+            exit(1)
 
-    if intWidth != ((intWidth >> 7) << 7):
-        intWidth_pad = (((intWidth >> 7) + 1) << 7)  # more than necessary
-        intPaddingLeft = int((intWidth_pad - intWidth) / 2)
-        intPaddingRight = intWidth_pad - intWidth - intPaddingLeft
-    else:
-        intPaddingLeft = 32
-        intPaddingRight= 32
+        if intWidth != ((intWidth >> 7) << 7):
+            intWidth_pad = (((intWidth >> 7) + 1) << 7)  # more than necessary
+            intPaddingLeft = int((intWidth_pad - intWidth) / 2)
+            intPaddingRight = intWidth_pad - intWidth - intPaddingLeft
+        else:
+            intPaddingLeft = 32
+            intPaddingRight = 32
 
-    if intHeight != ((intHeight >> 7) << 7):
-        intHeight_pad = (((intHeight >> 7) + 1) << 7)  # more than necessary
-        intPaddingTop = int((intHeight_pad - intHeight) / 2)
-        intPaddingBottom = intHeight_pad - intHeight - intPaddingTop
-    else:
-        intPaddingTop = 32
-        intPaddingBottom = 32
+        if intHeight != ((intHeight >> 7) << 7):
+            intHeight_pad = (((intHeight >> 7) + 1) << 7)  # more than necessary
+            intPaddingTop = int((intHeight_pad - intHeight) / 2)
+            intPaddingBottom = intHeight_pad - intHeight - intPaddingTop
+        else:
+            intPaddingTop = 32
+            intPaddingBottom = 32
 
-    pader = torch.nn.ReplicationPad2d([intPaddingLeft, intPaddingRight, intPaddingTop, intPaddingBottom])
+        pader = torch.nn.ReplicationPad2d([intPaddingLeft, intPaddingRight, intPaddingTop, intPaddingBottom])
 
-    X0 = Variable(torch.unsqueeze(X0,0))
-    X1 = Variable(torch.unsqueeze(X1,0))
-    X0 = pader(X0)
-    X1 = pader(X1)
+        X0 = Variable(torch.unsqueeze(X0, 0))
+        X1 = Variable(torch.unsqueeze(X1, 0))
+        X0 = pader(X0)
+        X1 = pader(X1)
 
-    if args.use_cuda:
-        X0 = X0.cuda()
-        X1 = X1.cuda()
+        y_s, offset, filter = model(torch.stack((X0, X1), dim=0))
+        y_ = y_s[process_info['save_which']]
 
-    y_s, offset, filter = model(torch.stack((X0, X1),dim = 0))
-    y_ = y_s[args.save_which]
-
-    if args.use_cuda:
         X0 = X0.data.cpu().numpy()
         if not isinstance(y_, list):
             y_ = y_.data.cpu().numpy()
         else:
             y_ = [item.data.cpu().numpy() for item in y_]
         offset = [offset_i.data.cpu().numpy() for offset_i in offset]
-        filter = [filter_i.data.cpu().numpy() for filter_i in filter]  if filter[0] is not None else None
+        filter = [filter_i.data.cpu().numpy() for filter_i in filter] if filter[0] is not None else None
         X1 = X1.data.cpu().numpy()
-    else:
-        X0 = X0.data.numpy()
-        if not isinstance(y_, list):
-            y_ = y_.data.numpy()
+
+        X0 = numpy.transpose(255.0 * X0.clip(0, 1.0)[0, :, intPaddingTop:intPaddingTop + intHeight, intPaddingLeft: intPaddingLeft + intWidth], (1, 2, 0))
+        y_ = [numpy.transpose(255.0 * item.clip(0, 1.0)[0, :, intPaddingTop:intPaddingTop + intHeight,intPaddingLeft:intPaddingLeft + intWidth], (1, 2, 0)) for item in y_]
+        offset = [numpy.transpose(offset_i[0, :, intPaddingTop:intPaddingTop + intHeight, intPaddingLeft: intPaddingLeft + intWidth], (1, 2, 0)) for offset_i in offset]
+        filter = [numpy.transpose(filter_i[0, :, intPaddingTop:intPaddingTop + intHeight, intPaddingLeft: intPaddingLeft + intWidth], (1, 2, 0)) for filter_i in filter] if filter is not None else None
+        X1 = numpy.transpose(255.0 * X1.clip(0, 1.0)[0, :, intPaddingTop:intPaddingTop + intHeight, intPaddingLeft: intPaddingLeft + intWidth], (1, 2, 0))
+
+        interpolated_frame_number = 0
+        shutil.copy(filename_frame_1, f'{filename_frame_1.replace(".npz", "")}_{"0".zfill(sf_length)}.npz')
+
+        for item, time_offset in zip(y_, time_offsets):
+            interpolated_frame_number += 1
+            output_frame_file_path = f'{filename_frame_1.replace(".npz", "")}_{str(interpolated_frame_number).zfill(sf_length)}'
+            numpy.savez_compressed(output_frame_file_path, np.round(item).astype('uint8'))
+
+        end_time = time.time()
+        time_spent = end_time - start_time
+        if _ == 0:
+            frame_count_len = len(str(len(input_files)))
+            print(f"****** Initialized model and processed frame {'1'.zfill(frame_count_len)} | Time spent: {round(time_spent, 2)}s ******************")
         else:
-            y_ = [item.data.numpy() for item in y_]
-        offset = [offset_i.data.numpy() for offset_i in offset]
-        filter = [filter_i.data.numpy() for filter_i in filter]
-        X1 = X1.data.numpy()
+            if _ == 1:
+                len_time_spent = len(str(round(time_spent))) + 5
+            loop_timer.append(time_spent)
+            frames_left = len(input_files) - _ - 2
+            estimated_seconds_left = round(frames_left * sum(loop_timer)/len(loop_timer), 2)
+            m, s = divmod(estimated_seconds_left, 60)
+            h, m = divmod(m, 60)
+            estimated_time_left = "%d:%02d:%02d" % (h, m, s)
+            print(f"****** Processed frame {str(_+1).zfill(frame_count_len)} | Time spent: {(str(round(time_spent, 2)) + 's').ljust(len_time_spent)} | Time left: {estimated_time_left} ******************")
 
-    X0 = np.transpose(255.0 * X0.clip(0,1.0)[0, :, intPaddingTop:intPaddingTop+intHeight, intPaddingLeft: intPaddingLeft+intWidth], (1, 2, 0))
-    y_ = [np.transpose(255.0 * item.clip(0,1.0)[0, :, intPaddingTop:intPaddingTop+intHeight,
-                                intPaddingLeft:intPaddingLeft+intWidth], (1, 2, 0)) for item in y_]
-    offset = [np.transpose(offset_i[0, :, intPaddingTop:intPaddingTop+intHeight, intPaddingLeft: intPaddingLeft+intWidth], (1, 2, 0)) for offset_i in offset]
-    filter = [np.transpose(
-        filter_i[0, :, intPaddingTop:intPaddingTop + intHeight, intPaddingLeft: intPaddingLeft + intWidth],
-        (1, 2, 0)) for filter_i in filter]  if filter is not None else None
-    X1 = np.transpose(255.0 * X1.clip(0,1.0)[0, :, intPaddingTop:intPaddingTop+intHeight, intPaddingLeft: intPaddingLeft+intWidth], (1, 2, 0))
-
-    interpolated_frame_number = 0
-    shutil.copy(filename_frame_1, os.path.join(output_dir, f"{input_files[input_frame].split('.')[0]}{interpolated_frame_number:0>3d}.png"))
-    for item, time_offset in zip(y_, time_offsets):
-        interpolated_frame_number += 1
-        output_frame_file_path = os.path.join(output_dir, f"{input_files[input_frame].split('.')[0]}{interpolated_frame_number:0>3d}.png")
-        imwrite(output_frame_file_path, np.round(item).astype(numpy.uint8))
-
-    end_time = time.time()
-    time_spent = end_time - start_time
-    input_frame += 1
-    session_count += 1
-    if session_count == 1:
-      print(f"****** Initialized and processed frame {'1'.zfill(frame_count_len)} | Time spent: {round(time_spent, 2)}s ******************" )
-    else:
-      if session_count == 2:
-        len_time_spent = len(str(round(time_spent))) + 5
-      loop_timer.update(time_spent)
-      frames_left = final_frame - input_frame
-      estimated_seconds_left = round(frames_left * loop_timer.avg, 2)
-      m, s = divmod(estimated_seconds_left, 60)
-      h, m = divmod(m, 60)
-      estimated_time_left = "%d:%02d:%02d" % (h, m, s)
-      print(f"****** Processed frame {str(input_frame).zfill(frame_count_len)} | Time spent: {(str(round(time_spent, 2))+'s').ljust(len_time_spent)} | Time left: {estimated_time_left} ******************" )
-    
-
-if args.copy_last_frame == 'True':
-  # Copying last frame
-  last_frame_filename = os.path.join(frames_dir, input_files[-1])
-  for i in range(interpolated_frame_number+1):
-    shutil.copy(last_frame_filename, os.path.join(output_dir, f"{input_files[-1].split('.')[0]}{i:0>3d}.png"))
-
-print("Finished processing images.")
+    print("Finished processing images.")
+except KeyboardInterrupt:
+    exit(1)

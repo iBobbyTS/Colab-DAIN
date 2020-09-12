@@ -13,7 +13,7 @@ torch.backends.cudnn.benchmark = True
 with open('process_info.txt', 'r') as file:
     process_info = file.read()
     process_info = eval(process_info)
-os.chdir(process_info['ssm_folder'])
+os.chdir(process_info['dain_folder'])
 sf_length = len(str(process_info['sf'] - 1))
 
 model = networks.__dict__[process_info['net_name']](
@@ -38,7 +38,7 @@ pretrained_dict = []
 
 model = model.eval()  # deploy mode
 
-timestep = process_info['sf']
+timestep = 1/process_info['sf']
 time_offsets = [kk * timestep for kk in range(1, int(1.0 / timestep))]
 
 torch.set_grad_enabled(False)
@@ -65,7 +65,7 @@ try:
         channels = X0.size(0)
         if not channels == 3:
             print(f"Skipping {filename_frame_1}-{filename_frame_2} -- expected 3 color channels but found {channels}.")
-            exit(1)
+            continue
 
         if intWidth != ((intWidth >> 7) << 7):
             intWidth_pad = (((intWidth >> 7) + 1) << 7)  # more than necessary
@@ -95,26 +95,25 @@ try:
 
         X0 = X0.data.cpu().numpy()
         if not isinstance(y_, list):
-            y_ = y_.data.cpu().numpy()
+            y_ = [y_.data.cpu().numpy()]
         else:
             y_ = [item.data.cpu().numpy() for item in y_]
         offset = [offset_i.data.cpu().numpy() for offset_i in offset]
         filter = [filter_i.data.cpu().numpy() for filter_i in filter] if filter[0] is not None else None
         X1 = X1.data.cpu().numpy()
-
         X0 = numpy.transpose(255.0 * X0.clip(0, 1.0)[0, :, intPaddingTop:intPaddingTop + intHeight, intPaddingLeft: intPaddingLeft + intWidth], (1, 2, 0))
+
         y_ = [numpy.transpose(255.0 * item.clip(0, 1.0)[0, :, intPaddingTop:intPaddingTop + intHeight,intPaddingLeft:intPaddingLeft + intWidth], (1, 2, 0)) for item in y_]
         offset = [numpy.transpose(offset_i[0, :, intPaddingTop:intPaddingTop + intHeight, intPaddingLeft: intPaddingLeft + intWidth], (1, 2, 0)) for offset_i in offset]
         filter = [numpy.transpose(filter_i[0, :, intPaddingTop:intPaddingTop + intHeight, intPaddingLeft: intPaddingLeft + intWidth], (1, 2, 0)) for filter_i in filter] if filter is not None else None
         X1 = numpy.transpose(255.0 * X1.clip(0, 1.0)[0, :, intPaddingTop:intPaddingTop + intHeight, intPaddingLeft: intPaddingLeft + intWidth], (1, 2, 0))
 
         interpolated_frame_number = 0
-        shutil.copy(filename_frame_1, f'{filename_frame_1.replace(".npz", "")}_{"0".zfill(sf_length)}.npz')
-
+        shutil.copy(filename_frame_1, f'{process_info["temp_folder"]}/out/{input_files[_].replace(".npz", "")}_{"0".zfill(sf_length)}.npz')
         for item, time_offset in zip(y_, time_offsets):
             interpolated_frame_number += 1
-            output_frame_file_path = f'{filename_frame_1.replace(".npz", "")}_{str(interpolated_frame_number).zfill(sf_length)}'
-            numpy.savez_compressed(output_frame_file_path, np.round(item).astype('uint8'))
+            output_frame_file_path = f'{process_info["temp_folder"]}/out/{input_files[_].replace(".npz", "")}_{str(interpolated_frame_number).zfill(sf_length)}'
+            numpy.savez_compressed(output_frame_file_path, numpy.round(item).astype('uint8'))
 
         end_time = time.time()
         time_spent = end_time - start_time

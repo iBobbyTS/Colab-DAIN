@@ -71,9 +71,9 @@ parser.add_argument('-rm', '--remove_temp_file',
                     type=str2bool, default=False,
                     help='If you want to keep temporary files, select True ')
 # DAIN
-parser.add_argument('-net', '--net_name', type=str, default='DAIN',
+parser.add_argument('-net', '--net_name', type=str, default='DAIN_slowmotion',
                     choices=['DAIN', 'DAIN_slowmotion'], help='model architecture: DAIN | DAIN_slowmotion')
-parser.add_argument('-sw', '--save_which', type=int, default=0,
+parser.add_argument('-sw', '--save_which', type=int, default=1,
                     choices=[0, 1], help='choose which result to save: 0 ==> interpolated, 1==> rectified')
 
 args = parser.parse_args()
@@ -141,7 +141,6 @@ for process in processes:
     if input_type == 'continue':
         with open(process) as f:
             process_info = eval(f.read())
-        batch_size = process_info['batch_size']
         sf = process_info['sf']
         ffmpeg_dir = process_info['ffmpeg_dir']
         remove_temp_file = process_info['remove_temp_file']
@@ -260,7 +259,6 @@ for process in processes:
     # Log
     dain_folder = os.getcwd()
     process_info = {'dain_folder': dain_folder,
-                    'batch_size': args.batch_size,
                     'model_path': args.model_path,
                     'temp_folder': temp_folder,
                     'filename': filename,
@@ -282,7 +280,7 @@ for process in processes:
     # Process
     os.chdir(temp_folder)
     t = time.time()
-    exit_code = os.system(f'{sys.executable} {dain_folder}/video_to_slomo.py')
+    exit_code = os.system(f'{sys.executable} {dain_folder}/colab_interpolate.py')
     print(f'Interpolation spent {round(time.time() - t, 2)}s')
     if exit_code != 0:
         print(exit_code)

@@ -129,8 +129,8 @@ try:
             m, s = divmod(estimated_seconds_left, 60)
             h, m = divmod(m, 60)
             estimated_time_left = "%d:%02d:%02d" % (h, m, s)
-            print(f"****** Processed frame {str(_+1).zfill(frame_count_len)} | Time spent: {(str(round(time_spent, 2)) + 's').ljust(len_time_spent)} | Time left: {estimated_time_left} ******************")
+            print('\r'+f"****** Processed frame {str(_+1).zfill(frame_count_len)} | Time spent: {(str(round(time_spent, 2)) + 's').ljust(len_time_spent)} | Time left: {estimated_time_left} ******************", end='', flush=True)
 
-    print("Finished processing images.")
+    print("\nFinished processing images.")
 except KeyboardInterrupt:
     exit(1)
